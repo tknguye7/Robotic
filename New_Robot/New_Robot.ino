@@ -19,6 +19,8 @@ volatile unsigned long cnt1=0;
 volatile unsigned long cnt2=0;
 volatile boolean diagflag=0;
 volatile boolean markflag=0;
+volatile boolean stopflag=0;
+volatile boolean R1flag=0;
 
 long distGlobal;
 long usespe;
@@ -30,6 +32,7 @@ int targetpos;
 int turnang;
 byte turndir;
 int markcount;
+int coinspicked=0;
 
 byte diagonalmotion;
 
@@ -95,15 +98,15 @@ front right: 01, 1=cw
   float distance_btwn_sensors = 7.25;
   float sos = 0.006756;
   float sos_over_dbs = sos / distance_btwn_sensors; //sos -> speed of sound 
-  float find_angle(NewPing front_sensor, NewPing rear_sensor, int N=16);
+//  float find_angle(NewPing front_sensor, NewPing rear_sensor, int N=16);
 
-  int tokens[8];
+  int token[] = {0,0,0,0,0,0,0,0};
 
 
 
 ISR(TIMER1_COMPA_vect){
 //toggle motor 1
-if(flag1==1){
+if((flag1==1)&& (stopflag==0)){
   if(diagflag==0){
     PORTL ^= motion_left_wheels;
     cnt1++;
@@ -121,7 +124,7 @@ if(cnt1>distGlobal|cnt2>distGlobal){
 ISR(TIMER3_COMPA_vect){
 // if motorFlag == true
 //toggle motor 2
-if(flag2==1){
+if((flag2==1)&& (stopflag==0)){
   if(diagflag==0){
     PORTL ^= motion_right_wheels;
     cnt2++;
@@ -147,10 +150,11 @@ void setup() {
 
 manualCalibrate();
 //sensorLogic();
-spokes2();
+//pickUp(120, 200, fwd);
 //follow(120, 200, fwd);
 //rotate(720,100,ccw);
 //go(36,450,fwd);
+Round1();
   /*  PORTL = fwd;
     for (int i=0;i<2000;i++){
       PORTL ^= B01010101;
@@ -186,6 +190,32 @@ accrobot(36,200,rev,8);*/
  * distance in inches
  * speed == delay -> lower is faster
  */
+
+void rotate(float distance, int speed, byte direction){
+    PORTL = direction;
+
+    //distance calibration calculation
+    float steps_f = distance * steps_per_degree;
+    distGlobal = steps_f;
+    usespe = 900000/speed;
+      
+    noInterrupts();  //prevent interrupts
+    OCR1A= usespe;
+    OCR3A= usespe;
+    
+    interrupts();  //allow interrupts
+    //reset count
+    cnt1=0;
+    cnt2=0;
+    //start interrupts
+    flag1=1;
+    flag2=1;
+    //wait until finished
+    while(flag1==1){
+    }
+ }
+
+
 void decideTurn(){
   int diffPos = targetpos - boardpos;
   if (diffPos > 0){
@@ -293,22 +323,22 @@ void spokes2(){
   rotate(180,100,cw);
 }
 
-void spokes(){
-  boardpos = 0;
-  accrobot(42,250,rev,12);
-  boardpos = 7;
-  rotate(45,100,cw);
-  go(7.5,100,fwd);
-  follow(50,200,fwd);
-  targetpos = 1;
-  decideTurn();
-  delay(100);
-  rotate(turnang,100,turndir);
-  go(7.5,100,fwd);
-  follow(50,200,fwd);
-  delay(100);
-  rotate(180,100,cw);
-}
+//void spokes(){
+//  boardpos = 0;
+//  accrobot(42,250,rev,12);
+//  boardpos = 7;
+//  rotate(45,100,cw);
+//  go(7.5,100,fwd);
+//  follow(50,200,fwd);
+//  targetpos = 1;
+//  decideTurn();
+//  delay(100);
+//  rotate(turnang,100,turndir);
+//  go(7.5,100,fwd);
+//  follow(50,200,fwd);
+//  delay(100);
+//  rotate(180,100,cw);
+//}
  
 void sensorLogic()
 {
@@ -453,12 +483,12 @@ void follow(float distance, int spe, byte dir){
     int modspe3 = 0;
     float multspe = 1;
     int coinFlag =0;
+    int cntcnt1=0;
+    int cntcnt2=0;
     if(picked == 0){
       goalSpoke = 2;
-      token[boardpos] += 1;
     }else if(picked == 1){
       goalSpoke = 4;
-      token[boardpos] += 1;
     }else{
       goalSpoke = 6;
     }
@@ -467,10 +497,20 @@ void follow(float distance, int spe, byte dir){
       poserror = qtrrc.readLine(sensorValues)-3500;
       sensorLogic();
       if((marker == goalSpoke) && (coinFlag == 0 ) ){
-        noInterrupts();
+        stopflag=1;
+        for (int i=0; i<400; i++){
+          PORTL ^= motion_all;
+          delayMicroseconds(900);
+        }
         delay(500);
-        interrupts();
+        for (int i=0; i<200; i++){
+          PORTL ^= motion_all;
+          delayMicroseconds(900);
+        }
+        stopflag=0;
+        token[boardpos] ++;
         coinFlag++;
+        coinspicked ++;
       }
       followspeed = 12 * poserror + 15 * (poserror - lasterror);
       multspe = abs(followspeed) / 10000 + 1;
@@ -691,7 +731,52 @@ while(flag1==1){
 }
 
 
+void Round1(){
+  boardpos = 0;
+  accrobot(42,250,rev,12);
+  boardpos = 7;
+  rotate(45,100,cw); //gets to yellow facing spoke
 
+    while (R1flag==0){
+      if (coinspicked==12){
+        R1flag=1;
+      }
+      followenter();
+       pickUp(50,200,fwd);
+       //targetpos = 2;
+       if (coinspicked % 6 == 1){
+        targetpos=1; //hard coding color of coin
+        }
+       else if (coinspicked % 6 ==2){
+          targetpos=2;
+          }
+       else if (coinspicked % 6 ==3){
+          targetpos=3;
+          }
+       else if (coinspicked % 6 ==4){
+          targetpos=5;
+          }
+       else if (coinspicked % 6 ==5){
+          targetpos=6;
+          }
+       else if (coinspicked % 6 ==0){
+          targetpos=7;
+          }
+       decideTurn();
+       delay(100);
+       rotate(turnang,100,turndir);
+       boardpos = targetpos;
+       followenter();
+       follow(50,200,fwd);
+       delay(100);
+       rotate(180,100,cw);
+    }
+    follow(50,200,fwd);
+    targetpos=0;
+    decideTurn();
+    rotate(turnang,100,turndir);
+    accrobot(42,250,fwd,12);
+}
 
 
 void loop() {
